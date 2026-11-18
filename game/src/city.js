@@ -16,25 +16,58 @@ const PALETTE = {
   glass: 0x7fb8d8,
 };
 
-function makeWindowTexture(rng, base, litRatio) {
+function makeGlowTexture() {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function makeWindowTexture(rng, base, litRatio, cols = 5, rows = 10) {
   const c = document.createElement('canvas');
   c.width = 128;
   c.height = 256;
   const g = c.getContext('2d');
   g.fillStyle = base;
   g.fillRect(0, 0, 128, 256);
-  const cols = 5;
-  const rows = 10;
+  // Emissive map: black everywhere except the lit windows, so only they glow.
+  const e = document.createElement('canvas');
+  e.width = 128;
+  e.height = 256;
+  const eg = e.getContext('2d');
+  eg.fillStyle = '#000000';
+  eg.fillRect(0, 0, 128, 256);
+  const cw = 128 / cols;
+  const rh = 256 / rows;
   for (let r = 0; r < rows; r++) {
     for (let col = 0; col < cols; col++) {
       const lit = rng() < litRatio;
+      const wx = col * cw + cw * 0.18;
+      const wy = r * rh + rh * 0.2;
+      const ww = cw * 0.64;
+      const wh = rh * 0.55;
       g.fillStyle = lit ? '#ffd98a' : (rng() < 0.5 ? '#2c3e50' : '#5a7a94');
-      g.fillRect(8 + col * 24, 10 + r * 24, 16, 14);
+      g.fillRect(wx, wy, ww, wh);
+      if (lit) {
+        eg.fillStyle = '#ffca66';
+        eg.fillRect(wx, wy, ww, wh);
+      }
     }
   }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
+  const emissiveTex = new THREE.CanvasTexture(e);
+  emissiveTex.colorSpace = THREE.SRGBColorSpace;
+  return { map: tex, emissiveMap: emissiveTex };
 }
 
 function makeGroundTexture(rng) {
@@ -44,21 +77,71 @@ function makeGroundTexture(rng) {
   c.height = S;
   const g = c.getContext('2d');
   const toPx = (v) => ((v + WORLD.half + 20) / (WORLD.half * 2 + 40)) * S;
-  // Sidewalk base.
-  g.fillStyle = '#a8a49a';
+  // Sidewalk base (brightened so the on-foot foreground reads with
+  // visible tile seams at distance; road contrast untouched).
+  g.fillStyle = '#b8b4a8';
   g.fillRect(0, 0, S, S);
+  // Sidewalk tile seams (drawn before roads/parks/beach paint over them).
+  g.strokeStyle = 'rgba(60,58,50,0.30)';
+  g.lineWidth = 2;
+  for (let v = 0; v <= S; v += 20) {
+    g.beginPath(); g.moveTo(v, 0); g.lineTo(v, S); g.stroke();
+    g.beginPath(); g.moveTo(0, v); g.lineTo(S, v); g.stroke();
+  }
   // Beach sand at the south edge.
   g.fillStyle = '#e8d29a';
   g.fillRect(0, toPx(WORLD.beachZ), S, S - toPx(WORLD.beachZ));
+  // Wet-sand band where the water meets the beach.
+  g.fillStyle = '#cba96f';
+  g.fillRect(0, toPx(328), S, toPx(336) - toPx(328));
+  g.fillStyle = '#a8894f';
+  g.fillRect(0, toPx(336) - 1, S, 3);
+  // Sparse shells and footprints on the sand.
+  for (let i = 0; i < 46; i++) {
+    g.fillStyle = rng() < 0.5 ? '#fff8e0' : '#e8b8a0';
+    g.beginPath();
+    g.arc(toPx(range(rng, -340, 340)), toPx(range(rng, 302, 356)), range(rng, 0.8, 1.8), 0, Math.PI * 2);
+    g.fill();
+  }
+  for (let i = 0; i < 26; i++) {
+    const fx = toPx(range(rng, -320, 320));
+    const fy = toPx(range(rng, 304, 330));
+    g.fillStyle = 'rgba(120,95,55,0.35)';
+    g.beginPath(); g.ellipse(fx, fy, 2.2, 1.4, 0, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.ellipse(fx + 3, fy + 2.5, 2.2, 1.4, 0, 0, Math.PI * 2); g.fill();
+  }
   // A couple of grass parks.
   g.fillStyle = '#7fae62';
   g.fillRect(toPx(-200), toPx(-200), toPx(-120) - toPx(-200), toPx(-120) - toPx(-200));
   g.fillRect(toPx(120), toPx(40), toPx(200) - toPx(120), toPx(120) - toPx(40));
-  // Roads.
-  g.fillStyle = '#3a3d44';
+  // Grass tufts and a worn path through each park.
+  for (const [px, pz, pw, ph] of [[-200, -200, 80, 80], [120, 40, 80, 80]]) {
+    for (let i = 0; i < 160; i++) {
+      g.fillStyle = rng() < 0.5 ? 'rgba(60,110,45,0.5)' : 'rgba(160,190,110,0.5)';
+      g.fillRect(toPx(px + rng() * pw), toPx(pz + rng() * ph), 2, 2);
+    }
+    g.fillStyle = 'rgba(210,190,140,0.7)';
+    g.fillRect(toPx(px + pw / 2 - 3), toPx(pz), 5, toPx(pz + ph) - toPx(pz));
+  }
+  // Roads (brightened so shadowed asphalt reads as dark grey, never
+  // near-black; still well below the sidewalk and lane markings).
+  g.fillStyle = '#4b4f57';
   for (const s of STREETS) {
     g.fillRect(toPx(s - WORLD.streetHalf), 0, toPx(s + WORLD.streetHalf) - toPx(s - WORLD.streetHalf), S);
     g.fillRect(0, toPx(s - WORLD.streetHalf), S, toPx(s + WORLD.streetHalf) - toPx(s - WORLD.streetHalf));
+  }
+  // Asphalt speckle.
+  for (let i = 0; i < 2600; i++) {
+    g.fillStyle = rng() < 0.5 ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.07)';
+    g.fillRect(rng() * S, rng() * S, 1.6, 1.6);
+  }
+  // Solid edge lines along each road.
+  g.fillStyle = 'rgba(216,212,200,0.75)';
+  for (const s of STREETS) {
+    g.fillRect(toPx(s - WORLD.streetHalf + 0.7), 0, 2, S);
+    g.fillRect(toPx(s + WORLD.streetHalf - 0.7) - 2, 0, 2, S);
+    g.fillRect(0, toPx(s - WORLD.streetHalf + 0.7), S, 2);
+    g.fillRect(0, toPx(s + WORLD.streetHalf - 0.7) - 2, S, 2);
   }
   // Lane dashes.
   g.fillStyle = '#e8e4d8';
@@ -91,21 +174,72 @@ export function createCity(scene, rng, opts = {}) {
   const intersections = [];
   for (const sx of STREETS) for (const sz of STREETS) intersections.push({ x: sx, z: sz });
 
-  // Sky, sun and fog.
-  scene.background = new THREE.Color(PALETTE.sky);
-  scene.fog = new THREE.Fog(0x9fc8e0, 220, 700);
-  const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x8a7a5a, 0.85);
+  // Sky: a vertical gradient dome (warm haze at the horizon, deep blue up top)
+  // instead of a flat background color, plus a visible sun disc with glow.
+  const skyCanvas = document.createElement('canvas');
+  skyCanvas.width = 32;
+  skyCanvas.height = 512;
+  const sg = skyCanvas.getContext('2d');
+  const skyGrad = sg.createLinearGradient(0, 0, 0, 512);
+  skyGrad.addColorStop(0, '#2a63a8');
+  skyGrad.addColorStop(0.4, '#5ea9e0');
+  skyGrad.addColorStop(0.65, '#8ec8ee');
+  skyGrad.addColorStop(0.85, '#ffd9a0');
+  skyGrad.addColorStop(1, '#ffe9bb');
+  sg.fillStyle = skyGrad;
+  sg.fillRect(0, 0, 32, 512);
+  const skyTex = new THREE.CanvasTexture(skyCanvas);
+  skyTex.colorSpace = THREE.SRGBColorSpace;
+  const skyDome = new THREE.Mesh(
+    new THREE.SphereGeometry(950, 24, 16),
+    new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false }),
+  );
+  scene.add(skyDome);
+  scene.background = null;
+  scene.fog = new THREE.Fog(0xd8c9a8, 220, 700);
+  const glowTex = makeGlowTexture();
+  // Sun disc + glow placed along the true light direction (lowered to a
+  // golden-hour angle so the disc actually sits in the sky you can see).
+  const sunDir = new THREE.Vector3(170, 130, 110).normalize();
+  const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTex, color: 0xffdf8a, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+  }));
+  sunGlow.scale.set(380, 380, 1);
+  sunGlow.position.copy(sunDir).multiplyScalar(860);
+  scene.add(sunGlow);
+  const sunCore = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTex, color: 0xfffbe8, transparent: true, opacity: 1,
+    depthWrite: false, fog: false,
+  }));
+  sunCore.scale.set(110, 110, 1);
+  sunCore.position.copy(sunDir).multiplyScalar(850);
+  scene.add(sunCore);
+
+  // Hemisphere lifted (0.95 -> 1.15) and ground tint lightened so shadowed
+  // facades and roads never go near-black; a weak cool fill from the
+  // opposite side of the sun (no shadows) lifts the faces the warm sun
+  // cannot reach. Sun elevation raised (y 95 -> 130) to shorten the
+  // extreme long shadows while keeping the warm golden-hour angle.
+  const hemi = new THREE.HemisphereLight(0xcfe4ff, 0xa89a78, 1.15);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(PALETTE.sun, 2.1);
-  sun.position.set(140, 220, 90);
+  const fill = new THREE.DirectionalLight(0xbfd4ff, 0.65);
+  fill.position.set(-170, 120, -110);
+  scene.add(fill);
+  scene.add(fill.target);
+  const sun = new THREE.DirectionalLight(0xffe2b0, 2.2);
+  sun.position.set(170, 130, 110);
   sun.castShadow = shadows;
-  sun.shadow.mapSize.set(1024, 1024);
-  sun.shadow.camera.left = -130;
-  sun.shadow.camera.right = 130;
-  sun.shadow.camera.top = 130;
-  sun.shadow.camera.bottom = -130;
+  const shadowRes = opts.softwareGL ? 1024 : 2048;
+  const shadowBox = opts.softwareGL ? 130 : 170;
+  sun.shadow.mapSize.set(shadowRes, shadowRes);
+  sun.shadow.camera.left = -shadowBox;
+  sun.shadow.camera.right = shadowBox;
+  sun.shadow.camera.top = shadowBox;
+  sun.shadow.camera.bottom = -shadowBox;
   sun.shadow.camera.far = 600;
   sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.4;
   scene.add(sun);
   scene.add(sun.target);
 
@@ -119,8 +253,33 @@ export function createCity(scene, rng, opts = {}) {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Ocean (animated in main loop via material offset) and wet sand strip.
-  const oceanMat = new THREE.MeshStandardMaterial({ color: 0x1e7fa8, roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.94 });
+  // Ocean: animated in main loop via map offset. Procedural wave texture so the
+  // water reads as moving, not a flat colour plane.
+  const waveCanvas = document.createElement('canvas');
+  waveCanvas.width = 256;
+  waveCanvas.height = 256;
+  const wg = waveCanvas.getContext('2d');
+  wg.fillStyle = '#1e7fa8';
+  wg.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 90; i++) {
+    wg.strokeStyle = `rgba(120,205,235,${0.2 + rng() * 0.3})`;
+    wg.lineWidth = 1 + rng() * 2.5;
+    const y0 = rng() * 256;
+    wg.beginPath();
+    wg.moveTo(-10, y0);
+    wg.bezierCurveTo(60, y0 + range(rng, -14, 14), 180, y0 + range(rng, -14, 14), 266, y0 + range(rng, -8, 8));
+    wg.stroke();
+  }
+  for (let i = 0; i < 220; i++) {
+    wg.fillStyle = `rgba(160,220,240,${0.1 + rng() * 0.2})`;
+    wg.fillRect(rng() * 256, rng() * 256, 2, 1.4);
+  }
+  const waveTex = new THREE.CanvasTexture(waveCanvas);
+  waveTex.colorSpace = THREE.SRGBColorSpace;
+  waveTex.wrapS = THREE.RepeatWrapping;
+  waveTex.wrapT = THREE.RepeatWrapping;
+  waveTex.repeat.set(12, 3);
+  const oceanMat = new THREE.MeshStandardMaterial({ map: waveTex, roughness: 0.22, metalness: 0.25, transparent: true, opacity: 0.94 });
   const ocean = new THREE.Mesh(new THREE.PlaneGeometry(900, 220), oceanMat);
   ocean.rotation.x = -Math.PI / 2;
   ocean.position.set(0, 0.15, WORLD.oceanZ + 110);
@@ -141,6 +300,8 @@ export function createCity(scene, rng, opts = {}) {
     makeWindowTexture(rng, '#d8c9a8', 0.22),
     makeWindowTexture(rng, '#b8c4c9', 0.18),
     makeWindowTexture(rng, '#d0a890', 0.25),
+    makeWindowTexture(rng, '#c4b8a8', 0.3, 4, 12),
+    makeWindowTexture(rng, '#a8b8c4', 0.15, 6, 9),
   ];
   const blockCenters = [];
   for (let i = 0; i < WORLD.avenueCount - 1; i++) {
@@ -149,8 +310,12 @@ export function createCity(scene, rng, opts = {}) {
     }
   }
   const parks = [{ x: -160, z: -160 }, { x: 160, z: 80 }];
-  const buildingSpots = [[], [], []]; // per texture variant: {x,y,z,w,h,d}
-  const roofSpots = [];
+  const buildingSpots = [[], [], [], [], []]; // per texture variant: {x,y,z,w,h,d}
+  const roofColors = [0x6a6a66, 0x8a5a44, 0x4a4a50];
+  const roofSpots = [[], [], []];
+  const acSpots = [];
+  const tankSpots = [];
+  const antennaSpots = [];
   for (const b of blockCenters) {
     if (b.z >= WORLD.beachZ - 40) continue;
     if (parks.some((p) => Math.abs(p.x - b.x) < 10 && Math.abs(p.z - b.z) < 10)) continue;
@@ -163,9 +328,14 @@ export function createCity(scene, rng, opts = {}) {
       const oz = count === 1 ? 0 : (k === 0 ? -14 : 14);
       const x = b.x + ox + range(rng, -4, 4);
       const z = b.z + oz + range(rng, -4, 4);
-      const variant = rangeInt(rng, 0, 2);
+      const variant = rangeInt(rng, 0, 4);
       buildingSpots[variant].push({ x, y: h / 2, z, w, h, d });
-      roofSpots.push({ x, y: h + 0.6, z, w: w + 1, h: 1.2, d: d + 1 });
+      roofSpots[rangeInt(rng, 0, 2)].push({ x, y: h + 0.6, z, w: w + 1, h: 1.2, d: d + 1 });
+      // Rooftop clutter: AC boxes, water tanks, antennae.
+      if (chance(rng, 0.55)) acSpots.push({ x: x + range(rng, -w / 4, w / 4), y: h + 1.8, z: z + range(rng, -d / 4, d / 4), w: 2.6, h: 1.2, d: 2 });
+      if (chance(rng, 0.55)) acSpots.push({ x: x + range(rng, -w / 4, w / 4), y: h + 1.8, z: z + range(rng, -d / 4, d / 4), w: 2.6, h: 1.2, d: 2 });
+      if (chance(rng, 0.22)) tankSpots.push({ x: x + range(rng, -w / 4, w / 4), y: h + 2.4, z: z + range(rng, -d / 4, d / 4), w: 2.2, h: 2.4, d: 2.2 });
+      if (chance(rng, 0.28)) antennaSpots.push({ x: x + w / 2 - 1.5, y: h + 4, z: z + d / 2 - 1.5, w: 0.25, h: 6, d: 0.25 });
       colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
     }
   }
@@ -187,21 +357,44 @@ export function createCity(scene, rng, opts = {}) {
   buildingSpots.forEach((spots, i) => {
     if (!spots.length) return;
     const mat = new THREE.MeshStandardMaterial({
-      map: windowTexes[i],
+      map: windowTexes[i].map,
+      emissiveMap: windowTexes[i].emissiveMap,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.4,
       color: pick(rng, PALETTE.building),
       roughness: 0.85,
     });
     fillInstances(new THREE.InstancedMesh(boxGeo, mat, spots.length), spots);
   });
-  if (roofSpots.length) {
+  roofSpots.forEach((spots, i) => {
+    if (!spots.length) return;
     fillInstances(
-      new THREE.InstancedMesh(boxGeo, new THREE.MeshStandardMaterial({ color: 0x6a6a66, roughness: 0.9 }), roofSpots.length),
-      roofSpots,
+      new THREE.InstancedMesh(boxGeo, new THREE.MeshStandardMaterial({ color: roofColors[i], roughness: 0.9 }), spots.length),
+      spots,
+    );
+  });
+  // Rooftop clutter, all instanced: AC boxes, water tanks, antennae.
+  if (acSpots.length) {
+    fillInstances(
+      new THREE.InstancedMesh(boxGeo, new THREE.MeshStandardMaterial({ color: 0x9a9a92, roughness: 0.7, metalness: 0.3 }), acSpots.length),
+      acSpots,
+    );
+  }
+  if (tankSpots.length) {
+    fillInstances(
+      new THREE.InstancedMesh(boxGeo, new THREE.MeshStandardMaterial({ color: 0x5a6a72, roughness: 0.6, metalness: 0.4 }), tankSpots.length),
+      tankSpots,
+    );
+  }
+  if (antennaSpots.length) {
+    fillInstances(
+      new THREE.InstancedMesh(boxGeo, new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.5, metalness: 0.7 }), antennaSpots.length),
+      antennaSpots,
     );
   }
 
   // Landmark towers on Bayfront so the skyline reads at a glance.
-  const towerMat = new THREE.MeshStandardMaterial({ map: windowTexes[1], color: 0x9fb8c8, roughness: 0.6, metalness: 0.25 });
+  const towerMat = new THREE.MeshStandardMaterial({ map: windowTexes[1].map, emissiveMap: windowTexes[1].emissiveMap, emissive: 0xffffff, emissiveIntensity: 0.4, color: 0x9fb8c8, roughness: 0.6, metalness: 0.25 });
   for (const [tx, tz, th] of [[-40, -320, 78], [40, -320, 64], [0, -280, 52]]) {
     const tower = new THREE.Mesh(boxGeo, towerMat);
     tower.scale.set(26, th, 26);
@@ -245,7 +438,7 @@ export function createCity(scene, rng, opts = {}) {
 
   // Streetlights at every other intersection (instanced poles and lamps).
   const poleMat = new THREE.MeshStandardMaterial({ color: 0x2c2f36, roughness: 0.6, metalness: 0.6 });
-  const lampMat = new THREE.MeshStandardMaterial({ color: 0xffe9a8, emissive: 0xffd76a, emissiveIntensity: 0.9 });
+  const lampMat = new THREE.MeshStandardMaterial({ color: 0xffe9a8, emissive: 0xffd76a, emissiveIntensity: 1.8 });
   const lightSpots = [];
   for (let i = 0; i < intersections.length; i += 2) {
     const p = intersections[i];
@@ -259,19 +452,35 @@ export function createCity(scene, rng, opts = {}) {
     new THREE.InstancedMesh(new THREE.SphereGeometry(0.5, 8, 6), lampMat, lightSpots.length),
     lightSpots.map((p) => ({ x: p.x, y: 7.1, z: p.z, w: 1, h: 1, d: 1 })),
   );
+  // One additive Points cloud for every lamp halo: a single draw call, soft glow.
+  const lampGlowPos = new Float32Array(lightSpots.length * 3);
+  lightSpots.forEach((p, i) => {
+    lampGlowPos[i * 3] = p.x;
+    lampGlowPos[i * 3 + 1] = 7.1;
+    lampGlowPos[i * 3 + 2] = p.z;
+  });
+  const lampGlowGeo = new THREE.BufferGeometry();
+  lampGlowGeo.setAttribute('position', new THREE.BufferAttribute(lampGlowPos, 3));
+  const lampGlow = new THREE.Points(lampGlowGeo, new THREE.PointsMaterial({
+    size: 6, map: glowTex, transparent: true, opacity: 0.55, color: 0xffd76a,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  }));
+  scene.add(lampGlow);
 
-  // Drifting clouds.
-  const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: 0.85 });
+  // Drifting clouds: varied size, puff count and opacity so no two look alike.
   const clouds = [];
   for (let i = 0; i < 9; i++) {
+    const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: range(rng, 0.5, 0.9) });
     const cloud = new THREE.Group();
-    for (let j = 0; j < 3; j++) {
+    const puffs = rangeInt(rng, 3, 5);
+    for (let j = 0; j < puffs; j++) {
       const puff = new THREE.Mesh(new THREE.SphereGeometry(range(rng, 6, 12), 8, 6), cloudMat);
-      puff.position.set(j * 9 - 9, range(rng, -1, 1), range(rng, -3, 3));
+      puff.position.set(j * 9 - ((puffs - 1) * 9) / 2, range(rng, -1, 1), range(rng, -3, 3));
       puff.scale.y = 0.45;
       cloud.add(puff);
     }
     cloud.position.set(range(rng, -340, 340), range(rng, 90, 130), range(rng, -340, 200));
+    cloud.scale.setScalar(range(rng, 0.8, 1.7));
     scene.add(cloud);
     clouds.push(cloud);
   }
@@ -287,6 +496,7 @@ export function createCity(scene, rng, opts = {}) {
     intersections,
     clouds,
     oceanMat,
+    foam,
     sun,
     pickupSpots,
     isOnRoad(x, z) {

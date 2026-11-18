@@ -6,7 +6,24 @@ import * as THREE from 'three';
 export function createEffects(scene) {
   const bursts = [];
 
-  function burst(x, y, z, color, count, speed, life, up = 2) {
+  // Soft round dot so particle bursts read as smoke/sparks, not hard squares.
+  const softDot = (() => {
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.5, 'rgba(255,255,255,0.6)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  })();
+
+  function burst(x, y, z, color, count, speed, life, up = 2, size = 0.35) {
     const positions = new Float32Array(count * 3);
     const velocities = [];
     for (let i = 0; i < count; i++) {
@@ -23,10 +40,19 @@ export function createEffects(scene) {
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const mat = new THREE.PointsMaterial({ color, size: 0.35, transparent: true, opacity: 1 });
+    const mat = new THREE.PointsMaterial({ color, size, map: softDot, transparent: true, opacity: 1, depthWrite: false });
     const points = new THREE.Points(geo, mat);
     scene.add(points);
     bursts.push({ points, velocities, life, maxLife: life });
+  }
+
+  // Small grey puffs from a tailpipe while accelerating; fades fast, low rate
+  // (the caller throttles it). Drift dust: tan puffs kicked up under handbrake.
+  function exhaustSmoke(x, y, z) {
+    burst(x, y, z, 0x9aa0a3, 4, 1.1, 0.8, 1.2, 0.5);
+  }
+  function driftDust(x, y, z) {
+    burst(x, y, z, 0xb8a888, 5, 1.6, 0.7, 1.0, 0.55);
   }
 
   function explosion(x, y, z) {
@@ -89,5 +115,5 @@ export function createEffects(scene) {
     }
   }
 
-  return { burst, explosion, addPickup, update, pickups };
+  return { burst, explosion, exhaustSmoke, driftDust, addPickup, update, pickups };
 }

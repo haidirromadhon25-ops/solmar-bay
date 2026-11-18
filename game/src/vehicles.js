@@ -13,7 +13,7 @@ export function makeCarModel(kind, color) {
   const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.55 });
   const glass = new THREE.MeshStandardMaterial({ color: 0x18242e, roughness: 0.15, metalness: 0.7 });
   const tyre = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.95 });
-  const hub = new THREE.MeshStandardMaterial({ color: 0xb8bcc0, roughness: 0.3, metalness: 0.8 });
+  const hub = new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.35, metalness: 0.4 });
 
   const low = kind === 'sports';
   const long = kind === 'van' || kind === 'truck';
@@ -71,8 +71,8 @@ export function makeCarModel(kind, color) {
   }
 
   // Headlights and taillights.
-  const headMat = new THREE.MeshStandardMaterial({ color: 0xfff6c0, emissive: 0xffe9a0, emissiveIntensity: 0.8 });
-  const tailMat = new THREE.MeshStandardMaterial({ color: 0xff2020, emissive: 0xaa0000, emissiveIntensity: 0.8 });
+  const headMat = new THREE.MeshStandardMaterial({ color: 0xfff6c0, emissive: 0xffe9a0, emissiveIntensity: 1.5 });
+  const tailMat = new THREE.MeshStandardMaterial({ color: 0xff2020, emissive: 0xaa0000, emissiveIntensity: 1.2 });
   for (const sx of [-0.65, 0.65]) {
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.1), headMat);
     head.position.set(sx, bodyY + 0.1, bodyL / 2 + 0.02);
@@ -80,6 +80,22 @@ export function makeCarModel(kind, color) {
     const tail = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.1), tailMat);
     tail.position.set(sx, bodyY + 0.1, -bodyL / 2 - 0.02);
     group.add(tail);
+  }
+
+  // Chrome bumpers front and rear (low metalness: with no env map, high-metal
+  // materials render near-black), and a glass windshield on vans
+  // (their cabin is painted, so without it the van reads as a solid block).
+  const chromeMat = new THREE.MeshStandardMaterial({ color: 0xd8dce0, roughness: 0.35, metalness: 0.35 });
+  for (const bz of [bodyL / 2 + 0.08, -bodyL / 2 - 0.08]) {
+    const bumper = new THREE.Mesh(new THREE.BoxGeometry(bodyW + 0.06, 0.22, 0.3), chromeMat);
+    bumper.position.set(0, 0.42, bz);
+    group.add(bumper);
+  }
+  const cabinY = bodyY + bodyH / 2 + (low ? 0.25 : 0.35);
+  if (kind === 'van') {
+    const windshield = new THREE.Mesh(new THREE.BoxGeometry(bodyW - 0.4, 0.7, 0.1), glass);
+    windshield.position.set(0, cabinY, 0.9 + 1.12);
+    group.add(windshield);
   }
 
   // Wheels.

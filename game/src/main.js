@@ -4,7 +4,7 @@
 // screenshot scene instead of the title screen and sets window.__shotReady.
 
 import * as THREE from 'three';
-import { GAME_TITLE, MISSIONS, ECONOMY, PLAYER, STORY_INTRO } from './config.js';
+import { GAME_TITLE, MISSIONS, ECONOMY, PLAYER, STORY_INTRO, WORLD } from './config.js';
 import { createRandom, clamp } from './random.js';
 import { createAudio } from './audio.js';
 import { createInput } from './input.js';
@@ -48,6 +48,8 @@ const softwareGL = isSoftwareGL();
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !softwareGL });
 renderer.setPixelRatio(softwareGL ? 1 : Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = !softwareGL;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
@@ -56,7 +58,7 @@ camera.position.set(60, 40, 180);
 
 const audio = createAudio();
 const input = createInput(canvas);
-const city = createCity(scene, rng, { shadows: !softwareGL });
+const city = createCity(scene, rng, { shadows: !softwareGL, softwareGL });
 const effects = createEffects(scene);
 const traffic = createTraffic(scene, rng, city.colliders, 16);
 const peds = createPedestrians(scene, rng, 22);
@@ -106,6 +108,8 @@ const state = {
 let targetCar = null; // the mission-3 Comet GT, once spawned
 let lastCrimeAt = -1e9;
 let ramCooldown = 0;
+let exhaustTimer = 0;
+let dustTimer = 0;
 let fps = 0;
 let frames = 0;
 let fpsTimer = 0;
@@ -433,6 +437,20 @@ function update(dt) {
         hud.toast('Your car is wrecked!');
       }
     });
+    // Exhaust puffs from the tailpipe while accelerating; drift dust on handbrake.
+    const carSpeed = Math.hypot(driving.car.vx, driving.car.vz);
+    exhaustTimer -= dt;
+    dustTimer -= dt;
+    const rearX = driving.car.x - Math.sin(driving.car.heading) * ((driving.car.model?.userData.bodyLength ?? 4.3) / 2 + 0.3);
+    const rearZ = driving.car.z - Math.cos(driving.car.heading) * ((driving.car.model?.userData.bodyLength ?? 4.3) / 2 + 0.3);
+    if (input.isDown('forward') && carSpeed > 3 && exhaustTimer <= 0) {
+      exhaustTimer = 0.09;
+      effects.exhaustSmoke(rearX, 0.45, rearZ);
+    }
+    if ((input.isDown('handbrake') || input.isDown('jump')) && carSpeed > 8 && dustTimer <= 0) {
+      dustTimer = 0.12;
+      effects.driftDust(rearX, 0.3, rearZ);
+    }
   } else {
     player.update(dt, input, city.colliders);
   }
@@ -493,14 +511,22 @@ function update(dt) {
     hud.toast(`+$${ECONOMY.pickupCash} cash pickup`);
   });
 
-  // Sun shadow follows the player; clouds drift; foam laps the shore.
+  // Sun shadow follows the player; clouds drift; foam laps the shore; waves scroll.
   const sun = city.sun;
-  sun.position.set(pos.x + 140, 220, pos.z + 90);
+  sun.position.set(pos.x + 170, 130, pos.z + 110);
   sun.target.position.set(pos.x, 0, pos.z);
   sun.target.updateMatrixWorld();
   for (const cloud of city.clouds) {
     cloud.position.x += dt * 1.5;
     if (cloud.position.x > 380) cloud.position.x = -380;
+  }
+  if (city.oceanMat.map) {
+    city.oceanMat.map.offset.x = (state.time * 0.012) % 1;
+    city.oceanMat.map.offset.y = (state.time * 0.005) % 1;
+  }
+  if (city.foam) {
+    city.foam.material.opacity = 0.55 + 0.18 * Math.sin(state.time * 1.3);
+    city.foam.position.z = WORLD.oceanZ + 2 + Math.sin(state.time * 0.9) * 1.6;
   }
 
   // Audio: engine and sirens.

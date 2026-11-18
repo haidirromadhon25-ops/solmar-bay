@@ -12,7 +12,10 @@ export function stageShot(name, G) {
     // Cover: a 3-star chase — Dash in a sports car, cruisers on his tail, the lot-job
     // mission live, minimap and wanted stars on the HUD.
     G.enterCar(G.parked[0], true);
-    G.teleportCar(0, 40, Math.PI, 30);
+    // x=4, not 0: the car drives straight up the x=0 street and a cash pickup
+    // sits exactly at (0,0), so x=0 collects it mid-shot ($120 -> $170 with a
+    // toast across the cover). x=4 stays on the same road and misses it.
+    G.teleportCar(4, 40, Math.PI, 30);
     police.setStars(3, 0);
     G.placePoliceAhead(3);
     missions.startMission(2, G.missionHooks);
