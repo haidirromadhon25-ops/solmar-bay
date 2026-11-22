@@ -507,6 +507,11 @@ function update(dt) {
     cloud.position.x += dt * 1.5;
     if (cloud.position.x > 380) cloud.position.x = -380;
   }
+  // Marina boats bob and roll gently on the water.
+  for (const b of city.boats) {
+    b.group.position.y = b.baseY + Math.sin(state.time * 0.8 + b.phase) * 0.15;
+    b.group.rotation.z = Math.sin(state.time * 0.6 + b.phase) * 0.02;
+  }
   if (city.oceanMat.map) {
     city.oceanMat.map.offset.x = (state.time * 0.012) % 1;
     city.oceanMat.map.offset.y = (state.time * 0.005) % 1;

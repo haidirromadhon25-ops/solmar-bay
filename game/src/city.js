@@ -168,6 +168,38 @@ function makeGroundTexture(rng) {
   return tex;
 }
 
+function makeWoodTexture(rng, rows = 8) {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const g = c.getContext('2d');
+  const rh = 256 / rows;
+  for (let r = 0; r < rows; r++) {
+    const shade = 0.85 + rng() * 0.3;
+    g.fillStyle = `rgb(${Math.round(138 * shade)},${Math.round(106 * shade)},${Math.round(68 * shade)})`;
+    g.fillRect(0, r * rh, 256, rh);
+    // Grain streaks along the plank.
+    for (let i = 0; i < 14; i++) {
+      g.strokeStyle = `rgba(60,40,20,${0.08 + rng() * 0.12})`;
+      g.lineWidth = 1;
+      const gy = r * rh + rng() * rh;
+      g.beginPath();
+      g.moveTo(0, gy);
+      g.bezierCurveTo(85, gy + range(rng, -2, 2), 170, gy + range(rng, -2, 2), 256, gy);
+      g.stroke();
+    }
+    // Plank seam + staggered butt joint.
+    g.fillStyle = 'rgba(40,26,12,0.85)';
+    g.fillRect(0, r * rh, 256, 2);
+    g.fillRect((r * 97) % 256, r * rh, 2, rh);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
 export function createCity(scene, rng, opts = {}) {
   const shadows = opts.shadows !== false;
   const colliders = [];
@@ -485,6 +517,180 @@ export function createCity(scene, rng, opts = {}) {
     clouds.push(cloud);
   }
 
+  // --- Solmar Pier, marina boats and the beach boardwalk (south edge). ---
+  // Pier: deck x 33..47, z 330..430, top y=0.35. Starts south of the z=320 road
+  // (spans 313..327) so it never blocks the beach boulevard or the drive shot.
+  const pierWoodTex = makeWoodTexture(rng, 8);
+  pierWoodTex.repeat.set(1, 8);
+  const pierDeck = new THREE.Mesh(
+    new THREE.BoxGeometry(14, 0.7, 100),
+    new THREE.MeshStandardMaterial({ map: pierWoodTex, roughness: 0.9 }),
+  );
+  pierDeck.position.set(40, 0, 380);
+  pierDeck.castShadow = shadows;
+  pierDeck.receiveShadow = true;
+  scene.add(pierDeck);
+  // Support posts: r=0.45, y -0.6..0.35, at x=34.5/45.5.
+  const pierPostSpots = [];
+  for (const px of [34.5, 45.5]) {
+    for (const pz of [335, 360, 385, 410, 425]) pierPostSpots.push({ x: px, y: -0.125, z: pz, w: 1, h: 1, d: 1 });
+  }
+  fillInstancesRot(
+    new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.45, 0.45, 0.95, 8),
+      new THREE.MeshStandardMaterial({ color: 0x5a4632, roughness: 1 }),
+      pierPostSpots.length,
+    ),
+    pierPostSpots,
+  );
+  // Railing: posts along both deck edges every 10 units + a thin top rail bar.
+  const railSpots = [];
+  for (const rx of [33.2, 46.8]) {
+    for (let rz = 330; rz <= 430; rz += 10) railSpots.push({ x: rx, y: 0.9, z: rz, w: 0.18, h: 1.1, d: 0.18 });
+  }
+  fillInstances(
+    new THREE.InstancedMesh(boxGeo, new THREE.MeshStandardMaterial({ color: 0x6a4a2a, roughness: 0.9 }), railSpots.length),
+    railSpots,
+  );
+  const railMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a, roughness: 0.9 });
+  for (const rx of [33.2, 46.8]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.12, 100), railMat);
+    rail.position.set(rx, 1.15, 380);
+    rail.castShadow = shadows;
+    scene.add(rail);
+  }
+  // 3 lamps on the deck (streetlight style).
+  for (const lz of [350, 380, 410]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 4, 6), poleMat);
+    pole.position.set(45, 2.35, lz);
+    pole.castShadow = shadows;
+    scene.add(pole);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), lampMat);
+    lamp.position.set(45, 4.35, lz);
+    scene.add(lamp);
+  }
+  // Shack at the end of the pier; door faces north (toward the beach).
+  const shack = new THREE.Mesh(
+    new THREE.BoxGeometry(6, 3.5, 5),
+    new THREE.MeshStandardMaterial({ color: 0x7a9ab0, roughness: 0.85 }),
+  );
+  shack.position.set(40, 2.1, 420);
+  shack.castShadow = shadows;
+  scene.add(shack);
+  const shackRoof = new THREE.Mesh(
+    new THREE.BoxGeometry(6.6, 0.3, 5.6),
+    new THREE.MeshStandardMaterial({ color: 0x5a4a3a, roughness: 0.95 }),
+  );
+  shackRoof.position.set(40, 4.0, 420);
+  shackRoof.castShadow = shadows;
+  scene.add(shackRoof);
+  const shackDoor = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.4, 2.2),
+    new THREE.MeshStandardMaterial({ color: 0x2c2f36, roughness: 0.9 }),
+  );
+  shackDoor.position.set(40, 1.45, 417.49);
+  shackDoor.rotation.y = Math.PI;
+  scene.add(shackDoor);
+  colliders.push({ minX: 33, maxX: 47, minZ: 330, maxZ: 430 });
+
+  // Marina: 3 sailboats in the water (no colliders — unreachable, z >= 375).
+  const boats = [];
+  function makeBoat(hullColor) {
+    const boat = new THREE.Group();
+    const hullMat = new THREE.MeshStandardMaterial({ color: hullColor, roughness: 0.5 });
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(3, 1.4, 10), hullMat);
+    hull.position.y = 0.5;
+    hull.castShadow = shadows;
+    boat.add(hull);
+    const bowGeo = new THREE.ConeGeometry(2.1, 3, 4);
+    bowGeo.rotateY(Math.PI / 4);
+    bowGeo.rotateX(Math.PI / 2);
+    const bow = new THREE.Mesh(bowGeo, hullMat);
+    bow.position.set(0, 0.5, 6.2);
+    boat.add(bow);
+    const cabin = new THREE.Mesh(
+      new THREE.BoxGeometry(3, 1.2, 2),
+      new THREE.MeshStandardMaterial({ color: 0xe8e8e0, roughness: 0.7 }),
+    );
+    cabin.position.set(0, 1.8, -1);
+    cabin.castShadow = shadows;
+    boat.add(cabin);
+    const mast = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.12, 7, 6),
+      new THREE.MeshStandardMaterial({ color: 0x8a6a44, roughness: 0.8 }),
+    );
+    mast.position.set(0, 4.7, 0.5);
+    boat.add(mast);
+    const sailShape = new THREE.Shape();
+    sailShape.moveTo(0, 0);
+    sailShape.lineTo(0, 5.5);
+    sailShape.lineTo(2.4, 0.4);
+    sailShape.lineTo(0, 0);
+    const sail = new THREE.Mesh(
+      new THREE.ShapeGeometry(sailShape),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, side: THREE.DoubleSide }),
+    );
+    sail.rotation.y = Math.PI / 2;
+    sail.position.set(0, 2.5, 0.5);
+    boat.add(sail);
+    return boat;
+  }
+  const boatDefs = [
+    { x: -10, z: 375, heading: 0.3, color: 0xffffff },
+    { x: 90, z: 395, heading: -0.2, color: 0x2e6fb0 },
+    { x: 120, z: 410, heading: 0.15, color: 0xc0392b },
+  ];
+  boatDefs.forEach((def, i) => {
+    const boat = makeBoat(def.color);
+    boat.position.set(def.x, 0, def.z);
+    boat.rotation.y = def.heading;
+    scene.add(boat);
+    boats.push({ group: boat, baseY: 0, phase: i * 2.1 });
+  });
+
+  // Boardwalk along the beach: z 296..304, x -340..340, top y=0.1.
+  const walkTex = makeWoodTexture(rng, 6);
+  walkTex.repeat.set(40, 1);
+  const boardwalk = new THREE.Mesh(
+    new THREE.BoxGeometry(680, 0.2, 8),
+    new THREE.MeshStandardMaterial({ map: walkTex, roughness: 0.9 }),
+  );
+  boardwalk.position.set(0, 0, 300);
+  boardwalk.receiveShadow = true;
+  scene.add(boardwalk);
+  // 4 benches at z=292 (seat, back, 2 legs each) + small collider each.
+  const benchMat = new THREE.MeshStandardMaterial({ color: 0x8a6a44, roughness: 0.9 });
+  const benchLegMat = new THREE.MeshStandardMaterial({ color: 0x3a3d44, roughness: 0.7, metalness: 0.4 });
+  for (const bx of [-200, -60, 100, 250]) {
+    const bench = new THREE.Group();
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.15, 0.6), benchMat);
+    seat.position.set(0, 0.55, 0);
+    seat.castShadow = shadows;
+    bench.add(seat);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.7, 0.12), benchMat);
+    back.position.set(0, 0.9, -0.26);
+    back.castShadow = shadows;
+    bench.add(back);
+    for (const lx of [-0.9, 0.9]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.55, 0.5), benchLegMat);
+      leg.position.set(lx, 0.275, 0);
+      bench.add(leg);
+    }
+    bench.position.set(bx, 0, 292);
+    scene.add(bench);
+    colliders.push({ minX: bx - 1.1, maxX: bx + 1.1, minZ: 291.6, maxZ: 292.5 });
+  }
+  // 3 boardwalk lamps at z=304 (no collider, like streetlight poles).
+  for (const lx of [-160, 0, 160]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 5, 6), poleMat);
+    pole.position.set(lx, 2.6, 304);
+    pole.castShadow = shadows;
+    scene.add(pole);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), lampMat);
+    lamp.position.set(lx, 5.1, 304);
+    scene.add(lamp);
+  }
+
   // Cash pickups scattered around the city (gold spinners, collected on touch).
   const pickupSpots = [
     [-240, -160], [-80, -240], [160, -160], [320, -80], [-320, 0], [0, 0],
@@ -495,6 +701,7 @@ export function createCity(scene, rng, opts = {}) {
     colliders,
     intersections,
     clouds,
+    boats,
     oceanMat,
     foam,
     sun,
