@@ -374,21 +374,8 @@ function update(dt) {
   const pos = playerPos();
   const speed = inCar ? Math.hypot(driving.car.vx, driving.car.vz) : (player.state.moving ? 6 : 0);
 
-  // Global keys.
-  if (input.wasPressed('pause')) {
-    if (state.screen === 'play') {
-      state.screen = 'pause';
-      hud.showScreen('pause');
-    } else if (state.screen === 'pause') {
-      state.screen = 'play';
-      hud.showScreen('play');
-    }
-  }
-  if (input.wasPressed('mute')) {
-    state.muted = !state.muted;
-    audio.setMuted(state.muted);
-    hud.toast(state.muted ? 'Sound off.' : 'Sound on.');
-  }
+  // Global keys (pause/mute) live in frame(), not here: update() only runs
+  // while screen === 'play', so a toggle inside it could never resume.
   if (state.screen !== 'play') {
     input.endFrame();
     return;
@@ -584,6 +571,24 @@ function frame(nowMs) {
     frames = 0;
     fpsTimer = 0;
   }
+  // Global keys (pause/mute) run here, before the branch decision, so they
+  // work while paused too: update() only runs when screen === 'play', so a
+  // toggle inside it could never resume — and a press made while paused
+  // would sit uncleared and instantly re-pause on Resume.
+  if (input.wasPressed('pause')) {
+    if (state.screen === 'play') {
+      state.screen = 'pause';
+      hud.showScreen('pause');
+    } else if (state.screen === 'pause') {
+      state.screen = 'play';
+      hud.showScreen('play');
+    }
+  }
+  if (input.wasPressed('mute')) {
+    state.muted = !state.muted;
+    audio.setMuted(state.muted);
+    hud.toast(state.muted ? 'Sound off.' : 'Sound on.');
+  }
   if (state.screen === 'play' || shotName) {
     accumulator += dtMs / 1000;
     let steps = 0;
@@ -598,6 +603,9 @@ function frame(nowMs) {
     const t = nowMs * 0.00005;
     camera.position.set(Math.sin(t) * 260, 90, Math.cos(t) * 260);
     camera.lookAt(0, 10, 0);
+    // Clear any presses made while paused/on title, or they poison the next
+    // Resume click (a stale pause press would instantly re-pause).
+    input.endFrame();
   }
   renderFrame();
 }
@@ -641,7 +649,7 @@ window.__game = {
 hud.setContinueVisible(!!loadSave());
 if (shotName) {
   const G = {
-    parked, driving, police, combat, missions, hud, state,
+    parked, driving, police, combat, missions, hud, state, peds,
     playerState: player.state,
     missionHooks,
     enterCar, teleportCar, placePlayer, placePoliceAhead, stepFrames,

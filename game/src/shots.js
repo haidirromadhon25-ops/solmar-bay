@@ -42,6 +42,25 @@ export function stageShot(name, G) {
     // and the ocean behind him, minimap and mission marker on the HUD.
     G.placePlayer(20, 296, Math.PI);
     G.playerState.armed = false;
+    // Lower camera pitch (default 0.32): less sidewalk foreground, more
+    // horizon/ocean. Camera sits ~7m behind the player at z≈289 looking
+    // south, so peds must be judged from the camera, not the player.
+    G.playerState.camPitch = 0.12;
+    // Put three pedestrians in frame ahead of the player (off-axis angles
+    // from the camera: ~35°, ~30°, 0° — inside the ~47° horizontal half-FOV).
+    // They walk east (heading π/2) only ~1–2 units during the settle frames.
+    const pedSpots = [[13, 299], [27, 301], [20, 304]];
+    for (let i = 0; i < pedSpots.length; i++) {
+      const p = G.peds.peds[i];
+      p.x = pedSpots[i][0];
+      p.z = pedSpots[i][1];
+      p.heading = Math.PI / 2;
+      p.state = 'walk';
+      p.waitTimer = 0;
+      p.downTimer = 0;
+      p.model.position.set(p.x, 0, p.z);
+      p.model.rotation.y = p.heading;
+    }
     police.setStars(0, 0);
     missions.startMission(0, G.missionHooks);
     missions.skipStep(G.missionHooks);
